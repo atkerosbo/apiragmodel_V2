@@ -50,3 +50,9 @@ class InformationEmbeddings(Base):
     code = Column(String, primary_key=True, index=True)  
     embedding = Column(LargeBinary, nullable=False)     
     
+
+class SeparateEmbeddingTables(Base):
+    __tablename__ = "separate_emb_table"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String, index=True)
+    embedding = Column(LargeBinary)

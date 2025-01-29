@@ -8,6 +8,7 @@ import models
 from routes import semantic_search, rag_query_endpoint, json_importer
 from faiss_index import load_faiss_index
 from description_faiss_index import load_description_faiss_index
+from separate_faiss_index import load_separate_faiss_index
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -32,6 +33,8 @@ async def lifespan(app):
         print("FAISS index loaded successfully.")
         load_description_faiss_index(db)  # Load FAISS Description index and information codes
         print("Description FAISS index loaded successfully.")
+        load_separate_faiss_index(db)  # Load FAISS Separated index and information codes
+        print("Separated FAISS index loaded successfully.")
         
         yield
     finally:

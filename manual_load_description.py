@@ -1,16 +1,16 @@
 import faiss
 import numpy as np
 from database import SessionLocal
-from models import EmbeddingsTable, InformationEmbeddings
+from models import EmbeddingsTable, InformationEmbeddings , SeparateEmbeddingTables
 
-DESCRIPTION_INDEX_FILE = "description_index.faiss"
+DESCRIPTION_INDEX_FILE = "separate_index.faiss"
 
 
 def create_faiss_index_description():
     db = SessionLocal()
     try:
         print("Fetching embeddings from the InformationEmbeddings table...")
-        rows = db.query(InformationEmbeddings).all()
+        rows = db.query(SeparateEmbeddingTables).all()
         print(f"Number of rows fetched: {len(rows)}")
 
         embeddings = []
@@ -33,11 +33,11 @@ def create_faiss_index_description():
 
         # Build FAISS index
         dimension = embeddings_array.shape[1]  # Embedding dimension
-        description_index = faiss.IndexFlatL2(dimension)  # L2 distance index
-        description_index.add(embeddings_array)
+        separate_index = faiss.IndexFlatL2(dimension)  # L2 distance index
+        separate_index.add(embeddings_array)
 
         # Save the index
-        faiss.write_index(description_index, DESCRIPTION_INDEX_FILE)
+        faiss.write_index(separate_index, DESCRIPTION_INDEX_FILE)
         print(f"FAISS index saved to {DESCRIPTION_INDEX_FILE}.")
 
     except Exception as e:

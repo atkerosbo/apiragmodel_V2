@@ -4,15 +4,11 @@ from sentence_transformers import SentenceTransformer
 from transformers import AutoTokenizer
 from sqlalchemy.exc import SQLAlchemyError
 
-from tqdm import tqdm  # To monitor batch progress
-from math import ceil
-
 import torch
 
+# Device setup
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 print(f"Using device: {device}")
-
-
 
 # Initialize tokenizer and model constants
 TOKENIZER = AutoTokenizer.from_pretrained("sentence-transformers/all-mpnet-base-v2")
@@ -24,12 +20,15 @@ class EmbeddingProcessor:
         self.db = db
         self.embedding_model = embedding_model
 
-    def fetch_data(self, table_model):
+    def fetch_data(self, table_model, filter_conditions=None):
         """
-        Fetch all rows from the specified table.
+        Fetch rows from the specified table with optional filter conditions.
         """
         try:
-            rows = self.db.query(table_model).all()
+            query = self.db.query(table_model)
+            if filter_conditions:
+                query = query.filter(*filter_conditions)
+            rows = query.all()
             print(f"Fetched {len(rows)} rows from database.")
             return rows
         except SQLAlchemyError as e:
@@ -40,99 +39,81 @@ class EmbeddingProcessor:
         """
         Generate embedding for a given text after tokenization and truncation.
         """
-        # Tokenize and truncate the input text
         tokenized = TOKENIZER(text, truncation=True, max_length=MAX_LENGTH, return_tensors="pt")
         truncated_text = TOKENIZER.decode(tokenized["input_ids"][0], skip_special_tokens=True)
-
-        # Generate embeddings
         embedding_vector = self.embedding_model.encode(truncated_text)
         return embedding_vector.astype(np.float32)
 
+    def save_embeddings(self, rows, columns, target_table):
+        """
+        Generate and save embeddings for specified columns in the target table.
+        """
+        for row in rows:
+            for col in columns:
+                text_data = str(getattr(row, col, "") or "").strip()
+                if not text_data:
+                    print(f"Row {row.code}, column {col} has no valid text data, skipping...")
+                    continue
 
-    def process_and_save_embeddings(self, source_table, target_table, batch_size=4):
+                try:
+                    embedding_vector = self.generate_embedding(text_data)
+                    new_embedding_entry = target_table(
+                        code=row.code,  # Associate embedding with the product
+                        embedding=embedding_vector.tobytes()
+                    )
+                    self.db.add(new_embedding_entry)
+                    print(f"Embedding generated and added for row {row.code}, column {col}.")
+                except Exception as e:
+                    print(f"Error generating/saving embedding for row {row.code}, column {col}: {e}")
+                    continue
+
+        try:
+            self.db.commit()
+            print("All embeddings committed successfully.")
+        except Exception as e:
+            print(f"Error committing embeddings: {e}")
+            self.db.rollback()
+
+    def process_columns_and_save(self, source_table, target_table, columns, filter_conditions=None):
         """
-        Process embeddings on CPU in small batches and save them to the target table.
+        Process embeddings for specific columns of rows from the source table
+        and save them to the target table.
         """
-        rows = self.fetch_data(source_table)
+        rows = self.fetch_data(source_table, filter_conditions)
         if not rows:
             print("No data to process.")
             return
 
-        total_rows = len(rows)
-        num_batches = (total_rows + batch_size - 1) // batch_size
-        print(f"Processing {total_rows} rows in {num_batches} batches...")
-
-        # Force CPU explicitly
-        device = torch.device("cpu")
-        
-
-        for batch_idx in range(num_batches):  # Sequential processing, no tqdm
-            print(f"\nProcessing batch {batch_idx + 1}/{num_batches}")
-            batch_rows = rows[batch_idx * batch_size: (batch_idx + 1) * batch_size]
-
-            texts = []
-            for row in batch_rows:
-                row_data = " ".join([
-                    str(getattr(row, col) or "") for col in row.__table__.columns.keys()
-                ]).strip()
-                if row_data:
-                    texts.append(row_data)
-
-            print(f"Texts to process in batch {batch_idx + 1}: {len(texts)}")
-            if not texts:
-                print(f"Batch {batch_idx + 1} has no valid text data, skipping...")
-                continue
-
-            try:
-                # Use CPU for embedding generation
-                embeddings = self.embedding_model.encode(
-                    texts, batch_size=batch_size, device=device
-                )
-                print(f"Embeddings generated successfully for batch {batch_idx + 1}")
-            except Exception as e:
-                print(f"Error generating embeddings for batch {batch_idx + 1}: {e}")
-                break
-
-            # Save embeddings to the database
-            for i, row in enumerate(batch_rows):
-                try:
-                    new_embedding_entry = target_table(
-                        code=row.code,
-                        embedding=embeddings[i].astype(np.float32).tobytes()
-                    )
-                    self.db.add(new_embedding_entry)
-                except Exception as e:
-                    print(f"Error saving embedding for row {row.id}: {e}")
-                    continue
-
-            # Commit after each batch
-            try:
-                self.db.commit()
-                print(f"Batch {batch_idx + 1}/{num_batches} committed successfully.")
-            except Exception as e:
-                print(f"Error committing batch {batch_idx + 1}: {e}")
-                self.db.rollback()
-                break
-
+        print(f"Processing embeddings for columns: {columns}")
+        self.save_embeddings(rows, columns, target_table)
 
 def main_embedding_process(db: Session, source_table, target_table):
     """
     Entry point to process embeddings.
-    :param db: SQLAlchemy Session object
-    :param source_table: SQLAlchemy table model for the source data
-    :param target_table: SQLAlchemy table model to save embeddings
     """
     print("Initializing embedding model...")
     embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, device=device)
-
-    # Initialize the embedding processor
     processor = EmbeddingProcessor(db, embedding_model)
 
-    # Process and save embeddings
     print("Starting embedding processing...")
-    # row_text = "This is a test sentence for embedding generation."
-    # embedding_vector = embedding_model.encode(row_text, device=device)
-    # print(f"Test embedding shape: {embedding_vector.shape}")
-
-    processor.process_and_save_embeddings(source_table, target_table)
+    processor.process_columns_and_save(
+        source_table=source_table,
+        target_table=target_table,
+        columns=["name", "description", "options", "usage"]
+    )
     print("Embedding generation and saving complete.")
+
+def separate_emb_process(db: Session, source_table, target_table):
+    """
+    Entry point for processing specific columns.
+    """
+    print("Initializing embedding model...")
+    embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, device=device)
+    processor = EmbeddingProcessor(db, embedding_model)
+
+    columns_to_embed = ["name", "description", "options"]
+    processor.process_columns_and_save(
+        source_table=source_table,
+        target_table=target_table,
+        columns=columns_to_embed
+    )

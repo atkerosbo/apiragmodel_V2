@@ -4,10 +4,11 @@ from utils.tokens import verify_key, verify_token
 from sqlalchemy.orm import Session
 from database import get_db
 from dotenv import load_dotenv
-from utils.chat_prompt_openai import get_keywords_with_openai, get_type_of_query, summerize_answer
-from routes.semantic_search import semantic_search, semantic_search_description
+from utils.chat_prompt_openai import get_keywords_with_openai, get_type_of_query, summerize_answer, chat_with_context
+from routes.semantic_search import semantic_search, semantic_search_description, semantic_search_separate
 import faiss
 from models import EmbeddingsTable, Products, Information
+from typing import List
 load_dotenv()
 
 router = APIRouter()
@@ -20,7 +21,7 @@ INDEX_FILE = "index.faiss"
 product_codes = []  # Global variable to hold product codes in the same order as FAISS index
 index = None
 
-
+global_query_thread: List[str] =[]
 
 
 ########### LOAD INDEX FOR SEMANTIC SEARCH ############
@@ -134,9 +135,13 @@ async def rag_chat(user_query: dict, db: Session = Depends(get_db)):
     user_query = user_query.get("query")
     if not user_query:
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
+    
+    global_query_thread.append({"role": "user", "content": user_query})
 
     query_type = get_type_of_query(user_query)
     print(f"Query type detected: {query_type}")
+
+   
     
     # Extract keywords
     keywords = get_keywords_with_openai(user_query)
@@ -169,14 +174,22 @@ async def rag_chat(user_query: dict, db: Session = Depends(get_db)):
         if query_type == "Product":
             keywords_for_semantic = {"query": " ".join(keywords), "top_k": 3}
             print("Fallback to semantic search for product")
-            returning_answer = await semantic_search(user_query=keywords_for_semantic, db=db)
+            returning_answer = await semantic_search_separate(user_query=keywords_for_semantic, db=db)
+            # returning_answer = []
+            # for keyword in keywords:
+            #     answer_for_keyword = await semantic_search_separate(user_query=keyword, db=db)
+            #     returning_answer.extend(answer_for_keyword)
+            global_query_thread.append({"role": "system", "answer": returning_answer})
+            response_with_context = chat_with_context(global_query_thread)
+            print(response_with_context)
             return {"answer": returning_answer}
 
         elif query_type == "General":
             keywords_for_semantic = {"query": " ".join(keywords), "top_k": 1}
             print("Fallback to semantic search for general query")
             returning_answer = await semantic_search_description(user_query=keywords_for_semantic, db=db)
-            return await {"answer": returning_answer}
+            global_query_thread.append({"role": "system", "answer": returning_answer})
+            return {"answer": returning_answer}
 
         print("No matching query type found.")
         raise HTTPException(status_code=400, detail="Unknown query type.")
@@ -184,3 +197,11 @@ async def rag_chat(user_query: dict, db: Session = Depends(get_db)):
     except Exception as e:
         print(f"An error occurred: {str(e)}")
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    
+
+@router.get("/all_queries", dependencies=[Depends(verify_token), Depends(verify_key)], status_code=200)
+async def get_all_queries():
+    """
+    Endpoint to retrieve all stored queries for future reference.
+    """
+    return global_query_thread

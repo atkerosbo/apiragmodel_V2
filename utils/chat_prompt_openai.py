@@ -31,6 +31,15 @@ def chat_prompt_openai(query):
     return message
 
 
+def chat_with_context(conversation):
+    completion = client.chat.completions.create(
+    model=MODEL,
+    messages=conversation
+            )
+    message = extract_chat_message(completion)
+    return message
+
+
 ########### AI PROMPTS WITH TEMPLATES ############
 
 def get_keywords_with_openai(query: str):
@@ -60,3 +69,59 @@ def summerize_answer(query, chunk_to_summerize):
     response_to_summerize = (f"Skrati mi tekst u nekoliko recenica i izvuci sustinu na osnovu ovog pitanja {query} .Ceo tekst :{chunk_to_summerize}")
     summerized_response = chat_prompt_openai(response_to_summerize)
     return summerized_response
+
+
+# messages = [
+#   {"role": "system", "content": "You are a helpful assistant."},
+#   {"role": "user","content": "remenik za kombajn"}
+# ]
+
+messages2 = [
+  {
+    "role": "user",
+    "content": "remenik za kombajn"
+  },
+  {
+    "role": "system",
+    "answer": [
+      {
+        "code": "1006319",
+        "name": "3HB2700 La \"DUNLOP\"",
+        "product URL": "https://www.agrimar.rs/3hb2700-la-dunlop_1006319/",
+        "description": "SPOJENI  KLINASTI  REMEN",
+        "price": "3422.22 RSD"
+      },
+      {
+        "code": "1006334",
+        "name": "3HC2730 La \"DUNLOP\"",
+        "product URL": "https://www.agrimar.rs/3hc2730-la-dunlop_1006334/",
+        "description": "SPOJENI  KLINASTI  REMEN",
+        "price": "5697.31 RSD"
+      },
+      {
+        "code": "1006336",
+        "name": "3HC4200 La \"DUNLOP\"",
+        "product URL": "https://www.agrimar.rs/3hc4200-la-dunlop_1006336/",
+        "description": "SPOJENI  KLINASTI  REMEN",
+        "price": "8765.09 RSD"
+      },
+      {
+        "code": "1006987",
+        "name": "2HB2440 La \"DUNLOP\" (CL 667251.1)",
+        "product URL": "https://www.agrimar.rs/2hb2440-la-dunlop-cl-6672511_1006987/",
+        "description": "SPOJENI  KLINASTI REMEN",
+        "price": "1996.21 RSD"
+      },
+      {
+        "code": "1011345",
+        "name": "zakovica JUS MB3 011 6x16",
+        "product URL": "https://www.agrimar.rs/zakovica-jus-mb3-011-6x16_1011345/",
+        "description": "ZA KOMBAJN",
+        "price": "2.84 RSD"
+      }
+    ]
+  }
+]
+
+answer = chat_with_context(messages2)
+print(answer)

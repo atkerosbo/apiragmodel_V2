@@ -5,8 +5,8 @@ from fastapi import Depends, APIRouter, UploadFile, File, HTTPException
 from utils.tokens import verify_key, verify_token
 import os
 import shutil
-from utils.embedding_processor import main_embedding_process
-from models import Data, Products, EmbeddingsTable, Information, InformationEmbeddings
+from utils.embedding_processor import main_embedding_process, separate_emb_process
+from models import Data, Products, EmbeddingsTable, Information, InformationEmbeddings, SeparateEmbeddingTables
 
 from utils.embeding_to_database import save_products_to_database, save_desription_to_database
 from sqlalchemy.orm import Session
@@ -49,6 +49,8 @@ async def upload_json(file: UploadFile = File(...), db: Session = Depends(get_db
 
         # make embeddings
         main_embedding_process(db, Products, EmbeddingsTable)
+        #separate emb process
+        #separate_emb_process(db, Products, SeparateEmbeddingTables)
 
 
         
@@ -84,7 +86,6 @@ async def upload_json(file: UploadFile = File(...), db: Session = Depends(get_db
 
          # make embeddings
         main_embedding_process(db, Information, InformationEmbeddings)
-
 
         
     except ValueError as e:
